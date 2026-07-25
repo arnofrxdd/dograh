@@ -800,6 +800,41 @@ class MPSServiceKeyClient:
         activity_description: str,
         organization_id: Optional[int] = None,
         created_by: Optional[str] = None,
+        name: Optional[str] = None,
+        agent_persona: Optional[str] = None,
+        greeting_message: Optional[str] = None,
+        tone: Optional[str] = None,
+        verbosity: Optional[str] = None,
+        formality: Optional[str] = None,
+        filler_words_enabled: bool = False,
+        empathy_responses_enabled: bool = True,
+        language: Optional[str] = None,
+        max_call_duration: Optional[int] = None,
+        max_user_idle_timeout: Optional[float] = None,
+        turn_start_strategy: str = "default",
+        turn_start_min_words: Optional[int] = None,
+        provisional_vad_pause_secs: Optional[float] = None,
+        turn_stop_strategy: str = "transcription",
+        context_compaction_enabled: bool = False,
+        primary_goal: Optional[str] = None,
+        success_criteria: Optional[str] = None,
+        failure_criteria: Optional[str] = None,
+        objection_handling: bool = True,
+        escalation_path: str = "none",
+        escalation_transfer_number: Optional[str] = None,
+        end_call_condition: str = "all",
+        enable_transfer_call: bool = False,
+        enable_end_call_tool: bool = True,
+        data_collection_fields: list = [],
+        off_topic_handling: str = "redirect",
+        prohibited_topics: list = [],
+        pii_collection_policy: str = "allowed",
+        profanity_filter: bool = False,
+        compliance_script: Optional[str] = None,
+        context_variables: dict = {},
+        industry: Optional[str] = None,
+        target_audience: Optional[str] = None,
+        avg_call_length: Optional[str] = None,
     ) -> dict:
         """
         Call the MPS workflow creation API using secret key authentication.
@@ -813,6 +848,7 @@ class MPSServiceKeyClient:
             activity_description: Description of what the agent should do
             organization_id: Organization ID (for authenticated mode)
             created_by: User provider ID (for OSS mode)
+            ... [additional builder fields]
 
         Returns:
             Workflow data from MPS API
@@ -820,14 +856,52 @@ class MPSServiceKeyClient:
         Raises:
             HTTPException: If the API call fails
         """
-        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
+            payload = {
+                "call_type": call_type,
+                "use_case": use_case,
+                "activity_description": activity_description,
+                "name": name,
+                "agent_persona": agent_persona,
+                "greeting_message": greeting_message,
+                "tone": tone,
+                "verbosity": verbosity,
+                "formality": formality,
+                "filler_words_enabled": filler_words_enabled,
+                "empathy_responses_enabled": empathy_responses_enabled,
+                "language": language,
+                "max_call_duration": max_call_duration,
+                "max_user_idle_timeout": max_user_idle_timeout,
+                "turn_start_strategy": turn_start_strategy,
+                "turn_start_min_words": turn_start_min_words,
+                "provisional_vad_pause_secs": provisional_vad_pause_secs,
+                "turn_stop_strategy": turn_stop_strategy,
+                "context_compaction_enabled": context_compaction_enabled,
+                "primary_goal": primary_goal,
+                "success_criteria": success_criteria,
+                "failure_criteria": failure_criteria,
+                "objection_handling": objection_handling,
+                "escalation_path": escalation_path,
+                "escalation_transfer_number": escalation_transfer_number,
+                "end_call_condition": end_call_condition,
+                "enable_transfer_call": enable_transfer_call,
+                "enable_end_call_tool": enable_end_call_tool,
+                "data_collection_fields": data_collection_fields,
+                "off_topic_handling": off_topic_handling,
+                "prohibited_topics": prohibited_topics,
+                "pii_collection_policy": pii_collection_policy,
+                "profanity_filter": profanity_filter,
+                "compliance_script": compliance_script,
+                "context_variables": context_variables,
+                "industry": industry,
+                "target_audience": target_audience,
+                "avg_call_length": avg_call_length,
+            }
+            body = {k: v for k, v in payload.items() if v is not None}
+
             response = await client.post(
                 f"{self.base_url}/api/v1/workflow/create-workflow",
-                json={
-                    "call_type": call_type,
-                    "use_case": use_case,
-                    "activity_description": activity_description,
-                },
+                json=body,
                 headers=self._get_headers(organization_id, created_by),
             )
 

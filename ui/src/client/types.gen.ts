@@ -1796,6 +1796,156 @@ export type CreateWorkflowTemplateRequest = {
      * Activity Description
      */
     activity_description: string;
+    /**
+     * Name
+     */
+    name?: string | null;
+    /**
+     * Agent Persona
+     */
+    agent_persona?: string | null;
+    /**
+     * Greeting Message
+     */
+    greeting_message?: string | null;
+    /**
+     * Tone
+     */
+    tone?: 'professional' | 'friendly' | 'empathetic' | 'authoritative' | 'casual' | null;
+    /**
+     * Verbosity
+     */
+    verbosity?: 'concise' | 'balanced' | 'detailed' | null;
+    /**
+     * Formality
+     */
+    formality?: 'formal' | 'semi-formal' | 'informal' | null;
+    /**
+     * Filler Words Enabled
+     */
+    filler_words_enabled?: boolean;
+    /**
+     * Empathy Responses Enabled
+     */
+    empathy_responses_enabled?: boolean;
+    /**
+     * Language
+     */
+    language?: string | null;
+    /**
+     * Ambient Noise
+     */
+    ambient_noise?: boolean;
+    /**
+     * Max Call Duration
+     */
+    max_call_duration?: number | null;
+    /**
+     * Max User Idle Timeout
+     */
+    max_user_idle_timeout?: number | null;
+    /**
+     * Turn Start Strategy
+     */
+    turn_start_strategy?: 'default' | 'min_words' | 'provisional_vad';
+    /**
+     * Turn Start Min Words
+     */
+    turn_start_min_words?: number | null;
+    /**
+     * Provisional Vad Pause Secs
+     */
+    provisional_vad_pause_secs?: number | null;
+    /**
+     * Turn Stop Strategy
+     */
+    turn_stop_strategy?: 'transcription' | 'turn_analyzer';
+    /**
+     * Context Compaction Enabled
+     */
+    context_compaction_enabled?: boolean;
+    /**
+     * Primary Goal
+     */
+    primary_goal?: string | null;
+    /**
+     * Success Criteria
+     */
+    success_criteria?: string | null;
+    /**
+     * Failure Criteria
+     */
+    failure_criteria?: string | null;
+    /**
+     * Objection Handling
+     */
+    objection_handling?: boolean;
+    /**
+     * Escalation Path
+     */
+    escalation_path?: 'none' | 'transfer' | 'callback';
+    /**
+     * Escalation Transfer Number
+     */
+    escalation_transfer_number?: string | null;
+    /**
+     * End Call Condition
+     */
+    end_call_condition?: 'goal_met' | 'user_request' | 'timeout' | 'all';
+    /**
+     * Enable Transfer Call
+     */
+    enable_transfer_call?: boolean;
+    /**
+     * Enable End Call Tool
+     */
+    enable_end_call_tool?: boolean;
+    /**
+     * Enable Dtmf Input
+     */
+    enable_dtmf_input?: boolean;
+    /**
+     * Data Collection Fields
+     */
+    data_collection_fields?: Array<string>;
+    /**
+     * Off Topic Handling
+     */
+    off_topic_handling?: 'ignore' | 'redirect' | 'end_call';
+    /**
+     * Prohibited Topics
+     */
+    prohibited_topics?: Array<string>;
+    /**
+     * Pii Collection Policy
+     */
+    pii_collection_policy?: 'allowed' | 'mask' | 'forbidden';
+    /**
+     * Profanity Filter
+     */
+    profanity_filter?: boolean;
+    /**
+     * Compliance Script
+     */
+    compliance_script?: string | null;
+    /**
+     * Context Variables
+     */
+    context_variables?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Industry
+     */
+    industry?: string | null;
+    /**
+     * Target Audience
+     */
+    target_audience?: 'b2b' | 'b2c' | 'enterprise' | 'smb' | 'consumer' | null;
+    /**
+     * Avg Call Length
+     */
+    avg_call_length?: 'short' | 'medium' | 'long' | null;
 };
 
 /**

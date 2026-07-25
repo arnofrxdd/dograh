@@ -294,7 +294,14 @@ export const createWorkflowApiV1WorkflowCreateDefinitionPost = <ThrowOnError ext
  * This endpoint:
  * 1. Uses mps_service_key_client to call MPS workflow API
  * 2. Passes organization ID (authenticated mode) or created_by (OSS mode)
- * 3. Creates the workflow in the database
+ * 3. Validates the MPS-generated workflow through a 4-layer hardening stack
+ * to prevent hallucinated/broken graphs from being persisted:
+ * a. sanitize_workflow_definition — strips unknown UI-only fields
+ * b. ReactFlowDTO.model_validate — Pydantic schema + referential integrity
+ * c. WorkflowGraph — structural graph rules (node counts, edge cardinality)
+ * d. strip hallucinated refs — nulls out tool_uuids/document_uuids MPS
+ * cannot know about (they don't exist in this org yet)
+ * 4. Creates the workflow in the database
  *
  * Args:
  * request: The template creation request with call_type, use_case, and activity_description
@@ -304,7 +311,7 @@ export const createWorkflowApiV1WorkflowCreateDefinitionPost = <ThrowOnError ext
  * The created workflow
  *
  * Raises:
- * HTTPException: If MPS API call fails
+ * HTTPException: If MPS API call fails or generated workflow is structurally invalid
  */
 export const createWorkflowFromTemplateApiV1WorkflowCreateTemplatePost = <ThrowOnError extends boolean = false>(options: Options<CreateWorkflowFromTemplateApiV1WorkflowCreateTemplatePostData, ThrowOnError>): RequestResult<CreateWorkflowFromTemplateApiV1WorkflowCreateTemplatePostResponses, CreateWorkflowFromTemplateApiV1WorkflowCreateTemplatePostErrors, ThrowOnError> => (options.client ?? client).post<CreateWorkflowFromTemplateApiV1WorkflowCreateTemplatePostResponses, CreateWorkflowFromTemplateApiV1WorkflowCreateTemplatePostErrors, ThrowOnError>({
     url: '/api/v1/workflow/create/template',

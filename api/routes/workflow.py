@@ -2,13 +2,13 @@ import json
 import re
 import uuid
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import Any, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from httpx import HTTPStatusError
 from loguru import logger
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from api.constants import DEPLOYMENT_MODE
 from api.db import db_client
@@ -334,9 +334,77 @@ class CreateWorkflowRunResponse(BaseModel):
 
 
 class CreateWorkflowTemplateRequest(BaseModel):
+    # ── EXISTING (required) ───────────────────────────────────────────────────
     call_type: Literal["inbound", "outbound"]
     use_case: str
     activity_description: str
+
+    # ── Step 1: Identity ──────────────────────────────────────────────────────
+    name: str | None = None
+    agent_persona: str | None = None
+    greeting_message: str | None = None
+
+    # ── Step 2: Behaviour ─────────────────────────────────────────────────────
+    tone: Literal["professional","friendly","empathetic","authoritative","casual"] | None = None
+    verbosity: Literal["concise","balanced","detailed"] | None = None
+    formality: Literal["formal","semi-formal","informal"] | None = None
+    filler_words_enabled: bool = False
+    empathy_responses_enabled: bool = True
+
+    # ── Step 3: Voice & Language ──────────────────────────────────────────────
+    language: str | None = None
+    ambient_noise: bool = False
+
+    # ── Step 4: Call Flow ─────────────────────────────────────────────────────
+    max_call_duration: int | None = Field(default=None, gt=0, le=1200)
+    max_user_idle_timeout: float | None = Field(default=None, ge=5.0, le=30.0)
+    turn_start_strategy: Literal["default","min_words","provisional_vad"] = "default"
+    turn_start_min_words: int | None = Field(default=None, ge=1, le=10)
+    provisional_vad_pause_secs: float | None = Field(default=None, ge=0.5, le=3.0)
+    turn_stop_strategy: Literal["transcription","turn_analyzer"] = "transcription"
+    context_compaction_enabled: bool = False
+
+    # ── Step 5: Goals ─────────────────────────────────────────────────────────
+    primary_goal: str | None = None
+    success_criteria: str | None = None
+    failure_criteria: str | None = None
+    objection_handling: bool = True
+    escalation_path: Literal["none","transfer","callback"] = "none"
+    escalation_transfer_number: str | None = None
+    end_call_condition: Literal["goal_met","user_request","timeout","all"] = "all"
+
+    # ── Step 6: Tools ─────────────────────────────────────────────────────────
+    enable_transfer_call: bool = False
+    enable_end_call_tool: bool = True
+    enable_dtmf_input: bool = False
+
+    data_collection_fields: list[str] = []
+
+    # ── Step 7: Guardrails ────────────────────────────────────────────────────
+    off_topic_handling: Literal["ignore","redirect","end_call"] = "redirect"
+    prohibited_topics: list[str] = []
+    pii_collection_policy: Literal["allowed","mask","forbidden"] = "allowed"
+    profanity_filter: bool = False
+    compliance_script: str | None = None
+
+    # ── Step 8: Context Variables ─────────────────────────────────────────────
+    context_variables: dict[str, Any] = {}
+
+    # ── Step 9: Domain Hints ──────────────────────────────────────────────────
+    industry: str | None = None
+    target_audience: Literal["b2b","b2c","enterprise","smb","consumer"] | None = None
+    avg_call_length: Literal["short","medium","long"] | None = None
+
+    @field_validator("context_variables")
+    @classmethod
+    def validate_context_variable_keys(cls, v):
+        pattern = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+        for key in v:
+            if not pattern.match(key):
+                raise ValueError(
+                    f"Invalid context variable key '{key}': must match /^[a-zA-Z_][a-zA-Z0-9_]*$/"
+                )
+        return v
 
 
 @router.post("/{workflow_id}/validate")
@@ -492,7 +560,14 @@ async def create_workflow_from_template(
     This endpoint:
     1. Uses mps_service_key_client to call MPS workflow API
     2. Passes organization ID (authenticated mode) or created_by (OSS mode)
-    3. Creates the workflow in the database
+    3. Validates the MPS-generated workflow through a 4-layer hardening stack
+       to prevent hallucinated/broken graphs from being persisted:
+         a. sanitize_workflow_definition — strips unknown UI-only fields
+         b. ReactFlowDTO.model_validate — Pydantic schema + referential integrity
+         c. WorkflowGraph — structural graph rules (node counts, edge cardinality)
+         d. strip hallucinated refs — nulls out tool_uuids/document_uuids MPS
+            cannot know about (they don't exist in this org yet)
+    4. Creates the workflow in the database
 
     Args:
         request: The template creation request with call_type, use_case, and activity_description
@@ -502,33 +577,130 @@ async def create_workflow_from_template(
         The created workflow
 
     Raises:
-        HTTPException: If MPS API call fails
+        HTTPException: If MPS API call fails or generated workflow is structurally invalid
     """
     try:
+        base_args = {
+            "call_type": request.call_type.upper(),
+            "use_case": request.use_case,
+            "activity_description": request.activity_description,
+            "name": request.name,
+            "agent_persona": request.agent_persona,
+            "greeting_message": request.greeting_message,
+            "tone": request.tone,
+            "verbosity": request.verbosity,
+            "formality": request.formality,
+            "filler_words_enabled": request.filler_words_enabled,
+            "empathy_responses_enabled": request.empathy_responses_enabled,
+            "language": request.language,
+            "max_call_duration": request.max_call_duration,
+            "max_user_idle_timeout": request.max_user_idle_timeout,
+            "turn_start_strategy": request.turn_start_strategy,
+            "turn_start_min_words": request.turn_start_min_words,
+            "provisional_vad_pause_secs": request.provisional_vad_pause_secs,
+            "turn_stop_strategy": request.turn_stop_strategy,
+            "context_compaction_enabled": request.context_compaction_enabled,
+            "primary_goal": request.primary_goal,
+            "success_criteria": request.success_criteria,
+            "failure_criteria": request.failure_criteria,
+            "objection_handling": request.objection_handling,
+            "escalation_path": request.escalation_path,
+            "escalation_transfer_number": request.escalation_transfer_number,
+            "end_call_condition": request.end_call_condition,
+            "enable_transfer_call": request.enable_transfer_call,
+            "enable_end_call_tool": request.enable_end_call_tool,
+            "data_collection_fields": request.data_collection_fields,
+            "off_topic_handling": request.off_topic_handling,
+            "prohibited_topics": request.prohibited_topics,
+            "pii_collection_policy": request.pii_collection_policy,
+            "profanity_filter": request.profanity_filter,
+            "compliance_script": request.compliance_script,
+            "context_variables": request.context_variables,
+            "industry": request.industry,
+            "target_audience": request.target_audience,
+            "avg_call_length": request.avg_call_length,
+        }
+
         # Call MPS API to generate workflow using the client
         if DEPLOYMENT_MODE == "oss":
             workflow_data = await mps_service_key_client.call_workflow_api(
-                call_type=request.call_type.upper(),
-                use_case=request.use_case,
-                activity_description=request.activity_description,
                 created_by=str(user.provider_id),
+                **base_args
             )
         else:
             if not user.selected_organization_id:
                 raise HTTPException(status_code=400, detail="No organization selected")
 
             workflow_data = await mps_service_key_client.call_workflow_api(
-                call_type=request.call_type.upper(),
-                use_case=request.use_case,
-                activity_description=request.activity_description,
                 organization_id=user.selected_organization_id,
+                **base_args
             )
 
-        # Create the workflow in our database
         # Regenerate trigger UUIDs to avoid conflicts with existing triggers
         workflow_def = regenerate_trigger_uuids(
             workflow_data.get("workflow_definition", {})
         )
+
+        # ── Layer 1: Strip unknown / UI-only fields from node.data and edge.data ──
+        # Prevents MPS from leaking unrecognised keys that would fail validation.
+        workflow_def = sanitize_workflow_definition(workflow_def) or {}
+
+        # ── Layer 2: Pydantic schema + referential integrity ────────────────────
+        # Catches: wrong field types, unknown node types, edges that reference
+        # node IDs that don't exist in the nodes list.
+        try:
+            dto = ReactFlowDTO.model_validate(workflow_def)
+        except ValidationError as exc:
+            logger.error(
+                f"MPS generated a schema-invalid workflow for "
+                f"use_case={request.use_case!r}: {exc}"
+            )
+            raise HTTPException(
+                status_code=422,
+                detail=f"MPS generated an invalid workflow structure: {exc}",
+            )
+
+        # ── Layer 3: Graph structural validation ────────────────────────────────
+        # Catches: missing/duplicate startCall node, violated edge cardinality
+        # per NodeSpec.graph_constraints, disconnected end nodes, etc.
+        try:
+            graph = WorkflowGraph(dto)
+        except ValueError as exc:
+            logger.error(
+                f"MPS generated a graph-invalid workflow for "
+                f"use_case={request.use_case!r}: {exc}"
+            )
+            raise HTTPException(
+                status_code=422,
+                detail=f"MPS generated a structurally invalid workflow graph: {exc}",
+            )
+
+        required_vars = graph.get_required_template_variables()
+        provided_vars = set(getattr(request, "context_variables", {}).keys())
+        missing = required_vars - provided_vars
+        if missing:
+            logger.warning(
+                f"Workflow generated for use_case={request.use_case!r} has undeclared template variables: {missing}"
+            )
+
+        # ── Layer 4: Strip hallucinated tool / document UUID references ─────────
+        # MPS cannot know which tools or documents exist in this org, so any
+        # tool_uuids / document_uuids it invents will be stale/nonexistent.
+        # Null them out so the workflow saves cleanly; users add real refs later.
+        raw_nodes = workflow_def.get("nodes") or []
+        for node in raw_nodes:
+            data = node.get("data")
+            if isinstance(data, dict):
+                if data.get("tool_uuids"):
+                    logger.info(
+                        f"Stripping hallucinated tool_uuids from node {node.get('id')}"
+                    )
+                    data["tool_uuids"] = None
+                if data.get("document_uuids"):
+                    logger.info(
+                        f"Stripping hallucinated document_uuids from node {node.get('id')}"
+                    )
+                    data["document_uuids"] = None
 
         trigger_paths = extract_trigger_paths(workflow_def) if workflow_def else []
         if trigger_paths:
@@ -564,6 +736,54 @@ async def create_workflow_from_template(
                 workflow_id=workflow.id,
                 organization_id=user.selected_organization_id,
                 trigger_paths=trigger_paths,
+            )
+
+        if request.enable_dtmf_input:
+            await db_client.update_workflow(
+                workflow_id=workflow.id,
+                name=None,
+                workflow_definition=None,
+                template_context_variables=None,
+                workflow_configurations=None,
+                enable_dtmf=True,
+                organization_id=user.selected_organization_id,
+            )
+
+        configs = {}
+        if request.ambient_noise:
+            configs["ambient_noise_configuration"] = {"enabled": True, "volume": 0.3}
+        if request.max_call_duration is not None:
+            configs["max_call_duration"] = request.max_call_duration
+        if request.max_user_idle_timeout is not None:
+            configs["max_user_idle_timeout"] = request.max_user_idle_timeout
+        if request.context_compaction_enabled:
+            configs["context_compaction_enabled"] = request.context_compaction_enabled
+        if request.turn_start_strategy != "default":
+            configs["turn_start_strategy"] = request.turn_start_strategy
+        if request.turn_stop_strategy != "transcription":
+            configs["turn_stop_strategy"] = request.turn_stop_strategy
+        if request.turn_start_min_words is not None:
+            configs["turn_start_min_words"] = request.turn_start_min_words
+        if request.provisional_vad_pause_secs is not None:
+            configs["provisional_vad_pause_secs"] = request.provisional_vad_pause_secs
+
+        ctx_vars = request.context_variables if request.context_variables else None
+
+        if configs or ctx_vars:
+            await db_client.update_workflow(
+                workflow_id=workflow.id,
+                name=None,
+                workflow_definition=None,
+                template_context_variables=ctx_vars,
+                workflow_configurations=configs if configs else None,
+                organization_id=user.selected_organization_id,
+            )
+            # Promote draft v2 → published so all settings are live before first call
+            await db_client.publish_workflow_draft(workflow_id=workflow.id)
+
+            # Re-fetch workflow to get updated configs in the response
+            workflow = await db_client.get_workflow(
+                workflow.id, organization_id=user.selected_organization_id
             )
 
         return {

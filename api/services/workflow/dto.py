@@ -380,7 +380,7 @@ class StartCallNodeData(
             },
         )
     ],
-    graph_constraints=GraphConstraints(min_incoming=1),
+    graph_constraints=GraphConstraints(min_incoming=1, min_outgoing=1),
     property_order=(
         "name",
         "prompt",

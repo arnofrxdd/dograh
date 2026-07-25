@@ -285,6 +285,8 @@ class WorkflowGraph:
         )
         errors.extend(self._assert_connection_counts())
         errors.extend(self._assert_node_configs())
+        errors.extend(self._assert_no_duplicate_edge_labels())
+        errors.extend(self._assert_bfs_reachability())
         if errors:
             raise ValueError(errors)
 
@@ -300,8 +302,67 @@ class WorkflowGraph:
                     dfs(m)
                 color[n.id] = "black"
 
-        for n in self.nodes.values():
-            dfs(n)
+        for node in self.nodes.values():
+            if color.get(node.id) != "black":
+                dfs(node)
+
+    def _assert_no_duplicate_edge_labels(self) -> list[WorkflowError]:
+        errors: list[WorkflowError] = []
+        for node in self.nodes.values():
+            seen = set()
+            dupes = set()
+            for edge in node.out_edges:
+                if edge.label:
+                    label_slug = re.sub(r"[^a-z0-9]", "_", edge.label.lower())
+                    if label_slug in seen:
+                        dupes.add(label_slug)
+                    else:
+                        seen.add(label_slug)
+            for d in dupes:
+                errors.append(
+                    WorkflowError(
+                        kind=ItemKind.node,
+                        id=node.id,
+                        field=None,
+                        message=f"Duplicate edge label '{d}' on node '{node.name}'",
+                    )
+                )
+        return errors
+
+    def _assert_bfs_reachability(self) -> list[WorkflowError]:
+        errors: list[WorkflowError] = []
+        start_nodes = [n for n in self.nodes.values() if n.is_start]
+        if not start_nodes:
+            return errors
+        
+        start_node = start_nodes[0]
+        visited = set()
+        queue = [start_node.id]
+        visited.add(start_node.id)
+        
+        while queue:
+            curr = queue.pop(0)
+            node = self.nodes.get(curr)
+            if not node:
+                continue
+            for target_id in node.out.keys():
+                if target_id not in visited:
+                    visited.add(target_id)
+                    queue.append(target_id)
+                    
+        for node_id, node in self.nodes.items():
+            if node.node_type in ("globalNode", "trigger", "webhook"):
+                continue
+            if node_id not in visited:
+                errors.append(
+                    WorkflowError(
+                        kind=ItemKind.node,
+                        id=node_id,
+                        field=None,
+                        message=f"Node (type: {node.node_type}) is unreachable from startCall",
+                    )
+                )
+        return errors
 
     def _assert_connection_counts(self):
         """Enforce per-type incoming/outgoing edge constraints.

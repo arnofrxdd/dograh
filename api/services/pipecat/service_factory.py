@@ -1064,21 +1064,10 @@ def create_llm_service_from_provider(
             ),
         )
     elif provider == ServiceProviders.SARVAM.value:
-        # Remap model names not yet in the installed pipecat allowlist.
-        # Remove entries here once pipecat is updated to recognise them.
-        _SARVAM_MODEL_ALIASES: dict[str, str] = {
-            "sarvam-105b-conversations": "sarvam-105b",
-        }
-        resolved_model = _SARVAM_MODEL_ALIASES.get(model, model)
-        if resolved_model != model:
-            logger.warning(
-                f"Sarvam LLM model '{model}' is not in pipecat's allowlist; "
-                f"remapping to '{resolved_model}'. Update your workflow config to silence this warning."
-            )
         return SarvamLLMService(
             api_key=api_key,
             settings=SarvamLLMSettings(
-                model=resolved_model,
+                model=model,
                 temperature=temperature if temperature is not None else 0.5,
             ),
         )

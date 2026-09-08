@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 
 from api.db import db_client
 from api.enums import WorkflowRunMode
@@ -115,8 +116,43 @@ from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 # Setup tracing if enabled
 ensure_tracing()
 
+
 DEFAULT_USER_TURN_STOP_TIMEOUT = 5.0
 EXTERNAL_TURN_USER_STOP_TIMEOUT = 30.0
+
+
+async def _warmup_llm_connection(llm) -> None:
+    """Pre-warm the LLM provider's HTTP/TLS connection.
+
+    Fires a minimal 1-token completion through the same internal httpx client
+    that pipecat will use for real LLM calls. This ensures the TCP+TLS handshake
+    with the provider API is done BEFORE the first user turn, eliminating the
+    ~800ms cold-start penalty customers experience on the first bot response.
+
+    Must be called as a fire-and-forget asyncio.create_task() immediately after
+    the LLM service is created — while the pipeline setup and greeting TTS are
+    still in progress.
+    """
+    # Only OpenAI-compatible services expose _client (OpenAI, Sarvam, Groq …).
+    # Others are silently skipped.
+    client = getattr(llm, "_client", None)
+    if client is None:
+        return
+
+    model = None
+    with contextlib.suppress(Exception):
+        model = llm._settings.model  # type: ignore[attr-defined]
+
+    if not model:
+        return
+
+    with contextlib.suppress(Exception):
+        await client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": "1"}],
+            max_tokens=1,
+            stream=False,
+        )
 
 
 def _resolve_user_turn_stop_timeout(
@@ -709,6 +745,11 @@ async def _run_pipeline_impl(
         )
         llm = create_llm_service(user_config, correlation_id=mps_correlation_id)
         inference_llm = None
+
+        # Pre-warm the LLM HTTP/TLS connection while setup continues and the
+        # greeting plays. This avoids paying the ~800ms cold-start penalty on
+        # the first real user turn. Fire-and-forget: failures are swallowed.
+        asyncio.create_task(_warmup_llm_connection(llm))
 
     # A shared LLM cannot carry an extraction usage_context without also tagging
     # normal conversation or context-summarization requests. Create a dedicated

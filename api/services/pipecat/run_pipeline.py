@@ -151,10 +151,17 @@ async def _warmup_llm_connection(llm) -> None:
         return
 
     with contextlib.suppress(Exception):
+        # GPT-5 models (gpt-5, gpt-5-mini, gpt-5-nano) require
+        # `max_completion_tokens`; older models use the legacy `max_tokens`.
+        token_limit_kwarg = (
+            {"max_completion_tokens": 1}
+            if isinstance(model, str) and model.startswith("gpt-5")
+            else {"max_tokens": 1}
+        )
         await client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": "1"}],
-            max_tokens=1,
+            **token_limit_kwarg,
             stream=False,
         )
 
@@ -750,9 +757,12 @@ async def _run_pipeline_impl(
         # Pre-warm the LLM HTTP/TLS connection while setup continues and the
         # greeting plays. This avoids paying the ~800ms cold-start penalty on
         # the first real user turn. Fire-and-forget: failures are swallowed.
+        # Operators can disable via run_config `llm_connection_warmup: false`
+        # if provider rate limits or per-request billing is a concern.
         # Store the task reference to prevent premature GC (Python best practice).
-        _llm_warmup_task = asyncio.create_task(_warmup_llm_connection(llm))
-        _llm_warmup_task.add_done_callback(lambda t: t)
+        if run_configs.get("llm_connection_warmup", True):
+            _llm_warmup_task = asyncio.create_task(_warmup_llm_connection(llm))
+            _llm_warmup_task.add_done_callback(lambda t: t)
 
     # Variable and disposition extraction may share this out-of-band LLM. A
     # shared conversation LLM cannot carry an extraction usage_context without

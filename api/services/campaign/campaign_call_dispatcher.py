@@ -515,7 +515,7 @@ class CampaignCallDispatcher:
             await asyncio.sleep(wait_time)
 
     async def acquire_concurrent_slot(
-        self, organization_id: int, campaign: any, timeout: float = 600
+        self, organization_id: int, campaign: any, timeout: float = 240
     ) -> CallConcurrencySlot:
         """
         Acquires a concurrent call slot - waits if necessary until a slot is available.

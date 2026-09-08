@@ -749,7 +749,9 @@ async def _run_pipeline_impl(
         # Pre-warm the LLM HTTP/TLS connection while setup continues and the
         # greeting plays. This avoids paying the ~800ms cold-start penalty on
         # the first real user turn. Fire-and-forget: failures are swallowed.
-        asyncio.create_task(_warmup_llm_connection(llm))
+        # Store the task reference to prevent premature GC (Python best practice).
+        _llm_warmup_task = asyncio.create_task(_warmup_llm_connection(llm))
+        _llm_warmup_task.add_done_callback(lambda t: t)
 
     # A shared LLM cannot carry an extraction usage_context without also tagging
     # normal conversation or context-summarization requests. Create a dedicated
